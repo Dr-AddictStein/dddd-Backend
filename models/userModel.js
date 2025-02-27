@@ -3,79 +3,111 @@ import bcrypt from "bcrypt";
 import validator from "validator";
 
 const userSchema = new mongoose.Schema({
-  fullName: {
+  // Primary identifier - wallet address
+  walletAddress: {
     type: String,
+    required: [true, "Wallet address is required"],
+    unique: true,
+    trim: true
   },
-  userName: {
+  
+  // Optional username (if you want users to set a custom username)
+  username: {
     type: String,
-    uniqe: true,
-    required: true
+    unique: true,
+    sparse: true, // Allows multiple null values (for users who don't set a username)
+    trim: true,
+    maxlength: [30, "Username cannot exceed 30 characters"]
   },
+  
+  // Wallet provider info
+  walletProvider: {
+    type: String,
+    trim: true,
+    default: "Unknown"
+  },
+  
+  // Profile information (expandable)
+  profile: {
+    displayName: {
+      type: String,
+      trim: true
+    },
+    bio: {
+      type: String,
+      trim: true,
+      maxlength: [500, "Bio cannot exceed 500 characters"]
+    },
+    avatar: {
+      type: String, // URL to avatar image
+      default: ""
+    }
+  },
+  
+  // Email (optional - for notifications)
   email: {
     type: String,
-    uniqe: true,
-    required: true
+    unique: true,
+    sparse: true,
+    trim: true,
+    lowercase: true,
+    validate: {
+      validator: validator.isEmail,
+      message: "Please provide a valid email"
+    }
   },
-  password: {
-    type: String
+  
+  // Account status
+  isActive: {
+    type: Boolean,
+    default: true
   },
+  
+  // Account verification
+  isVerified: {
+    type: Boolean,
+    default: false
+  },
+  
+  // Role-based access control
+  role: {
+    type: String,
+    enum: ["user", "admin", "moderator"],
+    default: "user"
+  },
+  
+  // For Nonce-based wallet authentication
+  nonce: {
+    type: String,
+    default: () => Math.floor(Math.random() * 1000000).toString()
+  },
+  
+  // Timestamps
+  lastLogin: {
+    type: Date,
+    default: Date.now
+  }
+}, {
+  timestamps: true // Automatically add createdAt and updatedAt fields
 });
 
+// Index for faster queries
+userSchema.index({ walletAddress: 1 });
 
+// Method to generate a new nonce for wallet signature verification
+userSchema.methods.generateNonce = async function() {
+  this.nonce = Math.floor(Math.random() * 1000000).toString();
+  await this.save();
+  return this.nonce;
+};
 
-
-userSchema.statics.signup = async function (fullName, userName, email, password) {
-  const exist = await this.findOne({ email });
-  const existU = await this.findOne({ userName });
-
-  if (exist) {
-    throw Error("Email already exists.!.");
-  }
-  if (existU) {
-    throw Error("Username already taken.!.");
-  }
-
-
-  if (!email || !password || !userName || !fullName) {
-    throw Error("All fields must be filled...");
-  }
-
-  if (!validator.isEmail(email)) {
-    throw Error("Not a valid email.!.");
-  }
-
-  const salt = await bcrypt.genSalt(10);
-  const hash = await bcrypt.hash(password, salt);
-
-  const user = await this.create({ fullName, userName, email, password: hash });
-
+// Method to safely return user data without sensitive information
+userSchema.methods.toJSON = function() {
+  const user = this.toObject();
+  delete user.nonce; // Don't expose the nonce
   return user;
 };
 
+const User = mongoose.model("UserCollection", userSchema);
 
-
-userSchema.statics.login = async function (userName, password) {
-  if (!password || !userName) {
-    throw Error("All fields must be filled...");
-  }
-
-  const user = await this.findOne({ userName });
-
-  if (!user) {
-    throw Error("Incorrect userName.!.");
-  }
-
-  const match = await bcrypt.compare(password, user.password);
-
-  if (!match) {
-    throw Error("Incorrect password.!.");
-  }
-
-  return user;
-};
-
-
-
-const user = mongoose.model("UserCollection", userSchema);
-
-export default user;
+export default User;
