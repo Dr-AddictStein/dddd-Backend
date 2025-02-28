@@ -102,7 +102,7 @@ export const getNonce = async (req, res) => {
 // Step 2: Verify wallet signature and authenticate user
 export const verifyWalletSignature = async (req, res) => {
   try {
-    const { walletAddress, signature, nonce } = req.body;
+    const { walletAddress, signature, nonce, walletProvider } = req.body;
     
     if (!walletAddress || !signature || !nonce) {
       return res.status(400).json({ error: "Wallet address, signature, and nonce are required" });
@@ -120,25 +120,24 @@ export const verifyWalletSignature = async (req, res) => {
       return res.status(401).json({ error: "Invalid nonce" });
     }
     
-    // Verify signature - construct the message that was signed
+    // Construct the message that was signed
     const message = `Sign this message to authenticate with our application: ${nonce}`;
-    const messageBytes = new TextEncoder().encode(message);
     
-    // Convert the signature from bs58 string to Uint8Array
-    const signatureBytes = bs58.decode(signature);
-    
-    // Convert wallet address string to PublicKey
-    const publicKey = new PublicKey(walletAddress);
-    
-    // Verify the signature
-    const isValid = nacl.sign.detached.verify(
-      messageBytes,
-      signatureBytes,
-      publicKey.toBytes()
+    // Verify signature based on wallet provider
+    const isValid = await verifyWalletByProvider(
+      walletAddress, 
+      signature, 
+      message, 
+      walletProvider || user.walletProvider
     );
     
     if (!isValid) {
       return res.status(401).json({ error: "Invalid signature" });
+    }
+    
+    // Update wallet provider if it has changed
+    if (walletProvider && walletProvider !== user.walletProvider) {
+      user.walletProvider = walletProvider;
     }
     
     // Update last login time
@@ -153,6 +152,7 @@ export const verifyWalletSignature = async (req, res) => {
       user: {
         _id: user._id,
         walletAddress: user.walletAddress,
+        walletProvider: user.walletProvider,
         username: user.username,
         role: user.role,
         profile: user.profile
@@ -348,4 +348,30 @@ export const getCurrentUser = async (req, res) => {
   } catch (error) {
     return res.status(500).json({ error: error.message });
   }
+};
+
+const verifyWalletByProvider = async (walletAddress, signature, message, walletProvider) => {
+  // Basic verification for all wallet types
+  const messageBytes = new TextEncoder().encode(message);
+  const signatureBytes = bs58.decode(signature);
+  const publicKey = new PublicKey(walletAddress);
+  
+  // Default verification approach
+  let isValid = nacl.sign.detached.verify(
+    messageBytes,
+    signatureBytes,
+    publicKey.toBytes()
+  );
+  
+  // If specific wallet providers need different verification methods, add them here
+  if (walletProvider === 'Phantom') {
+    // Phantom uses standard nacl verification (already handled above)
+    console.log('Verifying Phantom wallet signature');
+  } 
+  else if (walletProvider === 'Solflare') {
+    // Solflare also uses standard nacl verification (already handled above)
+    console.log('Verifying Solflare wallet signature');
+  }
+  
+  return isValid;
 };
